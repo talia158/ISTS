@@ -1,0 +1,55 @@
+#pragma kernel NodeClusterActiveCount
+#pragma kernel ComputeClusterFractions
+
+// Buffers
+StructuredBuffer<int> nodeToClusterBuffer;       // Node -> cluster mapping
+StructuredBuffer<int> nodeActivationBuffer;      // Node activation timestamps
+RWStructuredBuffer<int> clusterActiveCountBuffer; // Active node count per cluster
+StructuredBuffer<int> clusterSizeBuffer;         // Total nodes in each cluster
+RWStructuredBuffer<float> clusterActivationFractionBuffer; // Fraction per cluster
+
+// Constants
+cbuffer Parameters
+{
+    int totalNodes;
+    int totalClusters;
+    int timestep; // Current timestep
+}
+
+// Kernel 1: Count Active Nodes Per Cluster
+[numthreads(256, 1, 1)]
+void NodeClusterActiveCount(uint3 id : SV_DispatchThreadID)
+{
+    int i = int(id.x);
+    if (i >= totalNodes) return;
+
+    int clusterID = nodeToClusterBuffer[i];
+    if (clusterID < 0 || clusterID >= totalClusters) return;
+
+    int activationTime = nodeActivationBuffer[i];
+    if (activationTime >= 0 && activationTime <= timestep)
+    {
+        // Node is active; increment the cluster's count
+        InterlockedAdd(clusterActiveCountBuffer[clusterID], 1);
+    }
+}
+
+// Kernel 2: Compute Activation Fractions
+[numthreads(256, 1, 1)]
+void ComputeClusterFractions(uint3 id : SV_DispatchThreadID)
+{
+    int c = int(id.x);
+    if (c >= totalClusters) return;
+
+    int activeCount = clusterActiveCountBuffer[c];
+    int clusterSize = clusterSizeBuffer[c];
+
+    if (clusterSize > 0)
+    {
+        clusterActivationFractionBuffer[c] = (float)activeCount / (float)clusterSize;
+    }
+    else
+    {
+        clusterActivationFractionBuffer[c] = 0.0f; // Avoid division by zero
+    }
+}
